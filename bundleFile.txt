@@ -1,0 +1,81 @@
+// Name: Program.cs | Source: fib\Program.cs
+
+using System.CommandLine;
+
+var extensions = new Dictionary<string, string>
+{
+    { "css", ".css" },
+    { "cs", ".cs" },
+    { "js", ".js" },
+    { "python", ".py" },
+    { "java", ".java" },
+    { "txt",".txt" },
+
+};
+var excludedFolders = new[] { "bin", "obj", "debug", ".git", ".vs" };
+var languageOption = new Option<string[]>(new[] { "--language", "-l" }, "language to include");
+languageOption.AllowMultipleArgumentsPerToken = true;
+languageOption.IsRequired= true;
+var noteOption = new Option<bool>(new[] { "--note", "-n" }, "Write the source file path as a comment");
+var bundleOption = new Option<FileInfo>("--output","File path and name");
+var bundleCommand = new Command("bundle", "Bundle code files to a single file");
+bundleCommand.AddOption(noteOption);
+bundleCommand.AddOption(bundleOption);
+bundleCommand.AddOption(languageOption);
+bundleCommand.SetHandler((output, languages,note) =>
+{
+    try
+    {   
+        foreach (var lang in languages)
+        {
+            if(lang.ToLower()!="all"&&!extensions.ContainsKey(lang.ToLower()))
+            {
+                Console.WriteLine($"Error: language '{lang}' is not supported");
+                return;
+            }
+        }
+        var wantedExtensions = languages.Any(l => l.ToLower() == "all")
+        ? extensions.Values.ToList()
+        : languages.Select(l => extensions[l.ToLower()]).ToList();
+        var currentDir=Directory.GetCurrentDirectory();
+        var files=Directory.GetFiles(currentDir, "*",SearchOption.AllDirectories)
+        .Where(file =>
+        {
+            var relative = Path.GetRelativePath(currentDir, file);
+            var parts = relative.Split(Path.DirectorySeparatorChar);
+            return !parts.Take(parts.Length - 1)
+             .Any(p => excludedFolders.Contains(p.ToLower()));
+        })
+        .Where(file => wantedExtensions.Contains(Path.GetExtension(file).ToLower()))
+         .ToList();
+        if (files.Count == 0)
+        {
+            Console.WriteLine("No matching code files were found");
+            return;
+        }
+        var writer = new StreamWriter(output.FullName);
+        foreach (var file in files)
+        {
+            if (note)
+            {
+                writer.WriteLine("// Name: " + Path.GetFileName(file) + " | Source: " + Path.GetRelativePath(Directory.GetCurrentDirectory(), file));
+            }
+            writer.WriteLine(File.ReadAllText(file));
+        }
+        writer.Close();
+        Console.WriteLine("File was created");
+    }
+    catch(DirectoryNotFoundException e)
+    {
+        Console.WriteLine("Error: File path is invalid");
+    }
+    
+
+},bundleOption,languageOption,noteOption);
+
+var rootCommand = new RootCommand("Root command for File Bundler CLI");
+rootCommand.AddCommand(bundleCommand);
+
+await rootCommand.InvokeAsync(args);
+
+
